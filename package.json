@@ -1,0 +1,22 @@
+{
+  "name": "com.novaframework.unity.launcher",
+  "displayName": "NovaFramework.Launcher",
+  "description": "The launcher module for NovaFramework",
+  "version": "1.0.0",
+  "unity": "2018.3",
+  "unityRelease": "0f1",
+  "license": "MIT",
+  "keywords": [ "Unity", "NovaFramework", "Launcher" ],
+  "author": {
+    "name": "hurley",
+    "email": "yoseasoft@163.com",
+    "url": "https://github.com/yoseasoft/com.novaframework.unity.launcher"
+  },
+  "repository": {
+    "name": "com.novaframework.unity.launcher",
+    "type": "git",
+    "url": "https://github.com/yoseasoft/com.novaframework.unity.launcher.git"
+  },
+  "relatedPackages": {},
+  "dependencies": {}
+}
