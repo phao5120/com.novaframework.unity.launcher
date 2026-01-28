@@ -40,11 +40,11 @@ namespace NovaFramework.Editor.Launcher
         {
             {
                 "com.novaframework.unity.core.common",
-                "https://github.com/yoseasoft/com.novaframework.unity.core.common.git"
+                "https://github.com/phao5120/com.novaframework.unity.core.common.git"
             },
             {
                 "com.novaframework.unity.installer",
-                "https://github.com/yoseasoft/com.novaframework.unity.installer.git"
+                "https://github.com/phao5120/com.novaframework.unity.installer.git"
             },
         };
 
