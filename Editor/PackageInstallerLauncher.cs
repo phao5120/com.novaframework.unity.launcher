@@ -148,8 +148,42 @@ namespace NovaFramework.Editor.Launcher
         {
             try
             {
+                string packagePath = Path.Combine(targetPath, packageName);
+                
+                // 检查目标目录是否已存在
+                if (Directory.Exists(packagePath))
+                {
+                    _progressWindow?.AddLog($"Package directory already exists: {packagePath}, removing... ");
+                    
+                    // 删除已存在的目录
+                    try
+                    {
+                        Directory.Delete(packagePath, true); // 递归删除目录
+                        _progressWindow?.AddLog($"Removed existing package directory: {packagePath}");
+                    }
+                    catch (Exception deleteEx)
+                    {
+                        _progressWindow?.AddLog($"Failed to remove existing directory: {deleteEx.Message}");
+                        Debug.LogWarning($"Could not remove existing directory {packagePath}: {deleteEx.Message}");
+                        
+                        // 尝试清空目录内容而不是删除目录本身
+                        var files = Directory.GetFiles(packagePath);
+                        var dirs = Directory.GetDirectories(packagePath);
+                        
+                        foreach (var file in files)
+                        {
+                            File.Delete(file);
+                        }
+                        
+                        foreach (var dir in dirs)
+                        {
+                            Directory.Delete(dir, true);
+                        }
+                    }
+                }
+                
                 // 使用 Git 命令行下载包
-                string command = $"git clone \"{gitUrl}\" \"{Path.Combine(targetPath, packageName)}\"";
+                string command = $"git clone \"{gitUrl}\" \"{packagePath}\"";
                 string workingDir = targetPath;
 
                 System.Diagnostics.ProcessStartInfo startInfo = new System.Diagnostics.ProcessStartInfo
@@ -269,6 +303,9 @@ namespace NovaFramework.Editor.Launcher
             
             // 刷新AssetDatabase以确保新添加的包被识别
             AssetDatabase.Refresh();
+            
+            // 强制刷新所有资源，确保新下载的包被识别
+            AssetDatabase.ImportAsset("Assets", ImportAssetOptions.ImportRecursive);
             
             // 延迟执行，给Unity时间处理包的加载
             EditorApplication.delayCall += () =>
