@@ -99,67 +99,28 @@ namespace NovaFramework.Editor.Launcher
             // 显示统一安装进度窗口
             _progressWindow = UnifiedInstallProgressWindow.ShowWindow();
             
-            // 设置确认界面
-            _progressWindow.SetStep(UnifiedInstallProgressWindow.InstallStep.CheckEnvironment, "检测到这是首次启动，是否开始自动安装？");
+            // 显示安装说明并直接开始安装
+            _progressWindow.SetStep(UnifiedInstallProgressWindow.InstallStep.CheckEnvironment, "开始自动安装 - 检测到首次启动");
             
-            // 添加确认按钮
-            string confirmMessage = "自动安装将会:\n" +
+            string installMessage = "自动安装将会:\n" +
                 "- 下载并安装必要的框架包\n" +
                 "- 配置项目环境\n" +
                 "- 设置所需的资源目录\n\n" +
                 "注意：安装过程可能需要几分钟时间，请耐心等待。";
             
-            _progressWindow.AddLog(confirmMessage);
+            _progressWindow.AddLog(installMessage);
+            _progressWindow.AddLog("正在开始自动安装...");
             
-            // 添加确认按钮，使用Unity的Editor GUI来显示
-            EditorApplication.delayCall += () =>
-            {
-                // 强制刷新界面，确保立即显示内容
-                _progressWindow.Repaint();
-                
-                // 弹出确认对话框，但这次使用的是安装窗口
-                int dialogResult = EditorUtility.DisplayDialogComplex(
-                    "NovaFramework 自动安装", 
-                    "检测到这是首次启动，是否开始自动安装NovaFramework？\n\n" +
-                    "自动安装将会:\n" +
-                    "- 下载并安装必要的框架包\n" +
-                    "- 配置项目环境\n" +
-                    "- 设置所需的资源目录\n\n" +
-                    "注意：安装过程可能需要几分钟时间，请耐心等待。", 
-                    "开始安装", 
-                    "取消", 
-                    "稍后再说"
-                );
-                
-                // 根据用户选择执行相应操作
-                if (dialogResult == 0) // "开始安装"
-                {
-                    // 设置安装启动标志
-                    _installationStarted = true;
-                    
-                    Debug.Log("ExecuteInstallation - Starting unified installation process");
+            // 设置安装启动标志
+            _installationStarted = true;
+            
+            Debug.Log("ExecuteInstallation - Starting unified installation process");
 
-                    // 立即设置初始步骤并强制刷新界面
-                    _progressWindow.SetStep(UnifiedInstallProgressWindow.InstallStep.CheckEnvironment, "检查安装环境...");
-                    
-                    // 延迟执行安装，确保UI已渲染
-                    EditorApplication.delayCall += DoExecuteInstallation;
-                }
-                else if (dialogResult == 1) // "取消"
-                {
-                    Debug.Log("用户取消了自动安装，跳过安装过程。关闭窗口。");
-                    _progressWindow.Close();
-                    // 不设置任何标志，允许下次启动时再次询问
-                    return;
-                }
-                else if (dialogResult == 2) // "稍后再说"
-                {
-                    Debug.Log("用户选择了稍后再说，关闭窗口。");
-                    _progressWindow.Close();
-                    // 不设置任何标志，允许下次启动时再次询问
-                    return;
-                }
-            };
+            // 立即设置初始步骤并强制刷新界面
+            _progressWindow.SetStep(UnifiedInstallProgressWindow.InstallStep.CheckEnvironment, "检查安装环境...");
+            
+            // 延迟执行安装，确保UI已渲染
+            EditorApplication.delayCall += DoExecuteInstallation;
         }
 
         static void DoExecuteInstallation()
