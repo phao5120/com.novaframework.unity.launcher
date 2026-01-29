@@ -56,6 +56,13 @@ namespace NovaFramework.Editor.Launcher
         [InitializeOnLoadMethod]
         static void ExecuteInstallation()
         {
+            // 检查是否已经完成安装，如果是则跳过
+            if (_installationCompleted)
+            {
+                Debug.Log("Installation already completed. Skipping execution.");
+                return;
+            }
+            
             // 检查是否已经启动安装，防止重复执行
             if (_installationStarted)
             {
@@ -68,6 +75,9 @@ namespace NovaFramework.Editor.Launcher
             {
                 Debug.Log("Nova.Installer.Editor assembly already exists. Skipping installation.");
                 Debug.Log("Nova.Common.Editor assembly already exists. Skipping installation.");
+                
+                // 标记安装已完成，避免重复检查
+                _installationCompleted = true;
                 return; // 如果程序集已存在，则跳过安装
             }
             
@@ -79,26 +89,59 @@ namespace NovaFramework.Editor.Launcher
                 if (manifestContent.Contains("com.novaframework.unity.installer"))
                 {
                     Debug.Log("NovaFramework installer already exists in manifest.json. Skipping installation.");
+                    
+                    // 标记安装已完成，避免重复检查
+                    _installationCompleted = true;
                     return; // 如果已经在manifest.json中存在，则跳过安装
                 }
             }
             
-            // 设置安装启动标志
-            _installationStarted = true;
+            // 显示确认对话框，询问用户是否开始自动安装
+            int dialogResult = EditorUtility.DisplayDialogComplex(
+                "NovaFramework 自动安装", 
+                "检测到这是首次启动，是否开始自动安装NovaFramework？\n\n" +
+                "自动安装将会:\n" +
+                "- 下载并安装必要的框架包\n" +
+                "- 配置项目环境\n" +
+                "- 设置所需的资源目录\n\n" +
+                "注意：安装过程可能需要几分钟时间，请耐心等待。", 
+                "开始安装", 
+                "取消", 
+                "稍后再说"
+            );
             
-            Debug.Log("ExecuteInstallation - Starting unified installation process");
+            // 根据用户选择执行相应操作
+            if (dialogResult == 0) // "开始安装"
+            {
+                // 设置安装启动标志
+                _installationStarted = true;
+                
+                Debug.Log("ExecuteInstallation - Starting unified installation process");
 
-            // 显示统一安装进度窗口
-            _progressWindow = UnifiedInstallProgressWindow.ShowWindow();
-            
-            // 立即设置初始步骤并强制刷新界面
-            _progressWindow.SetStep(UnifiedInstallProgressWindow.InstallStep.CheckEnvironment, "检查安装环境...");
-            
-            // 强制刷新界面，确保立即显示内容
-            _progressWindow.Repaint();
-            
-            // 延迟执行安装，确保UI已渲染
-            EditorApplication.delayCall += DoExecuteInstallation;
+                // 显示统一安装进度窗口
+                _progressWindow = UnifiedInstallProgressWindow.ShowWindow();
+                
+                // 立即设置初始步骤并强制刷新界面
+                _progressWindow.SetStep(UnifiedInstallProgressWindow.InstallStep.CheckEnvironment, "检查安装环境...");
+                
+                // 强制刷新界面，确保立即显示内容
+                _progressWindow.Repaint();
+                
+                // 延迟执行安装，确保UI已渲染
+                EditorApplication.delayCall += DoExecuteInstallation;
+            }
+            else if (dialogResult == 1) // "取消"
+            {
+                Debug.Log("用户取消了自动安装，跳过安装过程。");
+                // 不设置任何标志，允许下次启动时再次询问
+                return;
+            }
+            else if (dialogResult == 2) // "稍后再说"
+            {
+                Debug.Log("用户选择了稍后再说，跳过安装过程。");
+                // 不设置任何标志，允许下次启动时再次询问
+                return;
+            }
         }
 
         static void DoExecuteInstallation()
@@ -715,6 +758,61 @@ namespace NovaFramework.Editor.Launcher
             // 检查是否存在指定名称的程序集
             return assemblies.Any(assembly => 
                 string.Equals(assembly.GetName().Name, assemblyName, StringComparison.OrdinalIgnoreCase));
+        }
+        
+        // 添加菜单项，允许用户手动启动自动安装
+        [MenuItem("Tools/NovaFramework/手动启动自动安装 &F8", false, 1)]
+        public static void ManualStartInstallation()
+        {
+            // 检查是否已经完成安装，如果是则跳过
+            if (_installationCompleted)
+            {
+                EditorUtility.DisplayDialog("提示", "NovaFramework 已经安装完成，无需重复安装。", "确定");
+                return;
+            }
+            
+            // 检查是否已经启动安装，防止重复执行
+            if (_installationStarted)
+            {
+                EditorUtility.DisplayDialog("提示", "安装已在进行中，请耐心等待。", "确定");
+                return;
+            }
+            
+            // 检查Nova.Installer.Editor程序集是否存在
+            if (IsAssemblyExists("NovaEditor.Installer") || IsAssemblyExists("NovaEditor.Common"))
+            {
+                EditorUtility.DisplayDialog("提示", "NovaFramework 相关程序集已存在，无需重复安装。", "确定");
+                return; // 如果程序集已存在，则跳过安装
+            }
+            
+            // 额外检查：检查是否已经有安装完成的标记
+            string installerPath = Path.Combine(Directory.GetParent(Application.dataPath).ToString(), "Packages", "manifest.json");
+            if (File.Exists(installerPath))
+            {
+                string manifestContent = File.ReadAllText(installerPath);
+                if (manifestContent.Contains("com.novaframework.unity.installer"))
+                {
+                    EditorUtility.DisplayDialog("提示", "NovaFramework 已在manifest.json中配置，无需重复安装。", "确定");
+                    return; // 如果已经在manifest.json中存在，则跳过安装
+                }
+            }
+            
+            // 设置安装启动标志
+            _installationStarted = true;
+            
+            Debug.Log("ManualStartInstallation - Starting unified installation process");
+
+            // 显示统一安装进度窗口
+            _progressWindow = UnifiedInstallProgressWindow.ShowWindow();
+            
+            // 立即设置初始步骤并强制刷新界面
+            _progressWindow.SetStep(UnifiedInstallProgressWindow.InstallStep.CheckEnvironment, "检查安装环境...");
+            
+            // 强制刷新界面，确保立即显示内容
+            _progressWindow.Repaint();
+            
+            // 延迟执行安装，确保UI已渲染
+            EditorApplication.delayCall += DoExecuteInstallation;
         }
     }
 }
