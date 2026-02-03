@@ -36,100 +36,114 @@ namespace NovaFramework.Editor.Launcher
 {
     public class PackageInstallerLauncher
     {
-        private static bool _installationStarted = false; // 防止重复安装的标志
-        private static bool _installationCompleted = false; // 标记安装是否已完成
+
+        
         private static readonly Dictionary<string, string> _gitUrlDic = new Dictionary<string, string>()
         {
             {
                 "com.novaframework.unity.core.common",
-                "https://github.com/phao5120/com.novaframework.unity.core.common.git"
+                "https://github.com/yoseasoft/com.novaframework.unity.core.common.git"
             },
             {
                 "com.novaframework.unity.installer",
-                "https://github.com/phao5120/com.novaframework.unity.installer.git"
+                "https://github.com/AkasLiu/com.novaframework.unity.installer.git"
             },
         };
 
         private static string _launcherPackageName = "com.novaframework.unity.launcher";
-        private static UnifiedInstallProgressWindow _progressWindow;
 
-        [InitializeOnLoadMethod]
+        [InitializeOnLoadMethod] // 当编辑器加载时自动检测是否需要启动安装
+        static void OnEditorLoaded()
+        {
+            // 检查是否已加载必要的程序集
+            if (HasNecessaryAssemblies())
+            {
+                // 延迟执行，确保编辑器完全加载
+                EditorApplication.delayCall += () =>
+                {
+                    Debug.Log("Installation not complete or packages installed but configuration not finished, starting AutoInstallManager...");
+                    TryLoadAndStartAutoInstallManager();
+                   
+                };
+            }
+            else
+            {
+                // 如果程序集不存在，说明需要执行安装
+                Debug.Log("Required assemblies not found, preparing to download installer and common packages...");
+                
+                // 自动开始安装流程
+                EditorApplication.delayCall += () =>
+                {
+                    ExecuteInstallation();
+                };
+            }
+        }
+        
         static void ExecuteInstallation()
         {
-            // 检查是否已经完成安装，如果是则跳过
-            if (_installationCompleted)
-            {
-                Debug.Log("Installation already completed. Skipping execution.");
-                return;
-            }
-            
-            // 检查是否已经启动安装，防止重复执行
-            if (_installationStarted)
-            {
-                Debug.Log("Installation already started. Skipping duplicate execution.");
-                return;
-            }
-            
             // 检查Nova.Installer.Editor程序集是否存在
-            if (IsAssemblyExists("NovaEditor.Installer") || IsAssemblyExists("NovaEditor.Common"))
+            if (HasNecessaryAssemblies())
             {
-                Debug.Log("Nova.Installer.Editor assembly already exists. Skipping installation.");
-                Debug.Log("Nova.Common.Editor assembly already exists. Skipping installation.");
+                Debug.Log("Nova.Installer.Editor assembly already exists. Starting AutoInstallManager...");
                 
-                // 标记安装已完成，避免重复检查
-                _installationCompleted = true;
-                return; // 如果程序集已存在，则跳过安装
+                // 注册projectChanged事件，以便在项目完全加载后启动AutoInstallManager
+                EditorApplication.projectChanged += OnProjectChangedAfterResolve;
+                return;
             }
             
-            // 额外检查：检查是否已经有安装完成的标记
-            string installerPath = Path.Combine(Directory.GetParent(Application.dataPath).ToString(), "Packages", "manifest.json");
-            if (File.Exists(installerPath))
+            // 开始新的安装流程 - 直接开始安装，不需要确认
+            ContinueInstallation();
+        }
+        
+        // 继续安装流程
+        static void ContinueInstallation()
+        {
+            
+            // 显示一个简单的确认对话框
+            bool startInstall = EditorUtility.DisplayDialog("开始安装", "是否开始自动安装NovaFramework？\n\n自动安装将会:\n- 下载并安装必要的框架包\n- 配置项目环境\n- 设置所需的资源目录\n\n注意：安装过程可能需要几分钟时间，请耐心等待。", "开始安装", "取消");
+            
+            if (startInstall)
             {
-                string manifestContent = File.ReadAllText(installerPath);
-                if (manifestContent.Contains("com.novaframework.unity.installer"))
-                {
-                    Debug.Log("NovaFramework installer already exists in manifest.json. Skipping installation.");
-                    
-                    // 标记安装已完成，避免重复检查
-                    _installationCompleted = true;
-                    return; // 如果已经在manifest.json中存在，则跳过安装
-                }
+                Debug.Log("User confirmed installation start");
+                
+                // 延迟执行安装，确保UI已渲染
+                EditorApplication.delayCall += DoExecuteInstallation;
             }
+            else
+            {
+                Debug.Log("User cancelled installation");
+            }
+        }
+        
+        // 当项目在Client.Resolve()后发生变化时调用
+        private static void OnProjectChangedAfterResolve()
+        {
+            // 确保只执行一次
+            EditorApplication.projectChanged -= OnProjectChangedAfterResolve;
             
-            // 显示统一安装进度窗口
-            _progressWindow = UnifiedInstallProgressWindow.ShowWindow();
+            Debug.Log("Project changed after Client.Resolve(), checking installation status...");
             
-            // 显示安装说明并直接开始安装
-            _progressWindow.SetStep(UnifiedInstallProgressWindow.InstallStep.CheckEnvironment, "开始自动安装 - 检测到首次启动");
-            
-            string installMessage = "自动安装将会:\n" +
-                "- 下载并安装必要的框架包\n" +
-                "- 配置项目环境\n" +
-                "- 设置所需的资源目录\n\n" +
-                "注意：安装过程可能需要几分钟时间，请耐心等待。";
-            
-            _progressWindow.AddLog(installMessage);
-            _progressWindow.AddLog("正在开始自动安装...");
-            
-            // 设置安装启动标志
-            _installationStarted = true;
-            
-            Debug.Log("ExecuteInstallation - Starting unified installation process");
-
-            // 立即设置初始步骤并强制刷新界面
-            _progressWindow.SetStep(UnifiedInstallProgressWindow.InstallStep.CheckEnvironment, "检查安装环境...");
-            
-            // 延迟执行安装，确保UI已渲染
-            EditorApplication.delayCall += DoExecuteInstallation;
+            // 检查是否已加载必要的程序集
+            if (HasNecessaryAssemblies())
+            {
+                Debug.Log("Required assemblies detected, attempting to start AutoInstallManager...");
+                
+                // 延迟执行，确保所有资源都已加载完成
+                EditorApplication.delayCall += () =>
+                {
+                    TryLoadAndStartAutoInstallManager();
+                };
+            }
+            else
+            {
+                Debug.LogWarning("Project changed but required assemblies are still not loaded.");
+            }
         }
 
         static void DoExecuteInstallation()
         {
             try
             {
-                _progressWindow?.SetStep(UnifiedInstallProgressWindow.InstallStep.DownloadLauncher, "准备下载框架包...");
-                
-                //创建目录结构
                 string projectPath = Path.GetDirectoryName(Application.dataPath);
                 string novaFrameworkDataPath = Path.Combine(projectPath, "NovaFrameworkData");
                 string frameworkRepoPath = Path.Combine(novaFrameworkDataPath, "framework_repo");
@@ -137,21 +151,22 @@ namespace NovaFramework.Editor.Launcher
                 if (!Directory.Exists(novaFrameworkDataPath))
                 {
                     Directory.CreateDirectory(novaFrameworkDataPath);
-                    _progressWindow?.AddLog($"Created directory: {novaFrameworkDataPath}");
+                    Debug.Log($"Created directory: {novaFrameworkDataPath}");
                 }
 
                 if (!Directory.Exists(frameworkRepoPath))
                 {
                     Directory.CreateDirectory(frameworkRepoPath);
-                    _progressWindow?.AddLog($"Created directory: {frameworkRepoPath}");
+                    Debug.Log($"Created directory: {frameworkRepoPath}");
                 }
 
+                Debug.Log("准备下载框架包...");
+                
                 // 依次下载并安装包
                 DownloadAndInstallPackagesSequentially(_gitUrlDic.ToList(), 0);
             }
             catch (Exception e)
             {
-                _progressWindow?.SetError($"Error during installation: {e.Message}\n{e.StackTrace}");
                 Debug.LogError($"Error during installation: {e.Message}\n{e.StackTrace}");
             }
         }
@@ -162,25 +177,24 @@ namespace NovaFramework.Editor.Launcher
             if (index >= gitUrls.Count)
             {
                 // 所有包都已安装完成，启动AutoInstallManager
-                _progressWindow?.SetStep(UnifiedInstallProgressWindow.InstallStep.LaunchInstaller, "启动Installer...");
+                Debug.Log("启动Installer...");
                 EditorApplication.delayCall += StartAutoInstallManager;
                 return;
             }
+            
 
+            
+
+            
             var currentPair = gitUrls[index];
             string packageName = currentPair.Key;
             string gitUrl = currentPair.Value;
 
-            _progressWindow?.SetStep(
-                packageName.Contains("installer") ? UnifiedInstallProgressWindow.InstallStep.InstallInstaller : 
-                packageName.Contains("common") ? UnifiedInstallProgressWindow.InstallStep.InstallCommon :
-                UnifiedInstallProgressWindow.InstallStep.DownloadLauncher,
-                $"正在安装 {packageName}..."
-            );
+            Debug.Log($"正在安装中 {packageName}...");
 
             DownloadPackageFromGit(packageName, gitUrl, Path.Combine(Path.GetDirectoryName(Application.dataPath), "NovaFrameworkData", "framework_repo"), () =>
             {
-                _progressWindow?.AddLog($"  完成: {packageName}");
+                Debug.Log($"  完成: {packageName}");
                 
                 // 延迟执行下一个包的安装
                 EditorApplication.delayCall += () =>
@@ -199,89 +213,125 @@ namespace NovaFramework.Editor.Launcher
                 // 检查目标目录是否已存在
                 if (Directory.Exists(packagePath))
                 {
-                    _progressWindow?.AddLog($"Package directory already exists: {packagePath}, removing... ");
+                    Debug.Log($"Package directory already exists: {packagePath}, checking if it's a git repository...");
                     
-                    // 删除已存在的目录
-                    try
+                    // 尝试使用git pull更新现有目录
+                    bool updateSuccess = UpdatePackageWithGitPull(packagePath, packageName);
+                    
+                    if (updateSuccess)
                     {
-                        // 先尝试等待一小段时间，让操作系统释放文件锁
-                        System.Threading.Thread.Sleep(1000);
+                        Debug.Log($"Successfully updated package with git pull: {packageName}");
                         
-                        Directory.Delete(packagePath, true); // 递归删除目录
-                        _progressWindow?.AddLog($"Removed existing package directory: {packagePath}");
+                        // 更新成功，直接调用 onComplete 回调
+                        ModifyManifestJson(packageName, onComplete);
+                        return; // 提前返回，不再执行后面的克隆逻辑
                     }
-                    catch (UnauthorizedAccessException uaEx)
-                    {
-                        _progressWindow?.AddLog($"Unauthorized access error: {uaEx.Message}");
-                        Debug.LogWarning($"Access denied to directory {packagePath}: {uaEx.Message}");
-                        
-                        // 尝试以管理员权限或在不同上下文中处理
-                        try
-                        {
-                            // 重新尝试删除
-                            Directory.Delete(packagePath, true);
-                            _progressWindow?.AddLog($"Successfully removed directory after retry: {packagePath}");
-                        }
-                        catch
-                        {
-                            // 如果还是失败，尝试清空目录内容而不是删除目录本身
-                            ClearDirectoryContents(packagePath);
-                        }
-                    }
-                    catch (Exception deleteEx)
-                    {
-                        _progressWindow?.AddLog($"Failed to remove existing directory: {deleteEx.Message}");
-                        Debug.LogWarning($"Could not remove existing directory {packagePath}: {deleteEx.Message}");
-                        
-                        // 尝试清空目录内容而不是删除目录本身
-                        ClearDirectoryContents(packagePath);
-                    }
+                    
+                    // 如果更新失败，继续执行后面的克隆逻辑
                 }
                 
                 // 使用 Git 命令行下载包
                 string command = $"git clone \"{gitUrl}\" \"{packagePath}\"";
                 string workingDir = targetPath;
-
-                System.Diagnostics.ProcessStartInfo startInfo = new System.Diagnostics.ProcessStartInfo
+                
+                int exitCode = ExecuteGitCommand(command, workingDir, out string output, out string error);
+                
+                if (exitCode == 0)
                 {
-                    FileName = "cmd.exe",
-                    Arguments = $"/c {command}",
-                    WorkingDirectory = workingDir,
-                    UseShellExecute = false,
-                    RedirectStandardOutput = true,
-                    RedirectStandardError = true,
-                    CreateNoWindow = true
-                };
-
-                using (System.Diagnostics.Process process = System.Diagnostics.Process.Start(startInfo))
+                    Debug.Log($"Successfully downloaded package from {gitUrl}");
+                    
+                    // 修改 manifest.json
+                    ModifyManifestJson(packageName, onComplete);
+                }
+                else
                 {
-                    process.WaitForExit();
-                    int exitCode = process.ExitCode;
-
-                    if (exitCode == 0)
-                    {
-                        _progressWindow?.AddLog($"Successfully downloaded package from {gitUrl}");
-
-                        // 修改 manifest.json
-                        ModifyManifestJson(packageName, onComplete);
-                    }
-                    else
-                    {
-                        string error = process.StandardError.ReadToEnd();
-                        string errorMsg = $"Failed to download package: {error}";
-                        _progressWindow?.SetError(errorMsg);
-                        Debug.LogError(errorMsg);
-                        onComplete?.Invoke(); // 确保即使失败也能继续
-                    }
+                    string errorMsg = $"Failed to download package: {error}";
+                    Debug.LogError(errorMsg);
+                    onComplete?.Invoke(); // 确保即使失败也能继续
                 }
             }
             catch (Exception e)
             {
-                string errorMsg = $"Exception during package download: {e.Message}";
-                _progressWindow?.SetError(errorMsg);
-                Debug.LogError(errorMsg);
-                onComplete?.Invoke(); // 确保即使失败也能继续
+                // 遇到异常时，记录警告而不是错误，并继续执行
+                string warningMsg = $"Warning: Could not download package {packageName}, skipping. Reason: {e.Message}";
+                Debug.LogWarning(warningMsg);
+                
+                // 跳过当前包，继续执行后续步骤
+                onComplete?.Invoke();
             }
+        }
+        
+        // 尝试使用git pull更新现有包
+        private static bool UpdatePackageWithGitPull(string packagePath, string packageName)
+        {
+            // 检查是否是git仓库
+            string gitDirPath = Path.Combine(packagePath, ".git");
+            if (Directory.Exists(gitDirPath))
+            {
+                // 这是一个git仓库，尝试pull更新
+                try
+                {
+                    string pullCommand = $"cd /d \"{packagePath}\" && git pull origin main";
+                    
+                    int pullExitCode = ExecuteGitCommand(pullCommand, ".", out string output, out string pullError);
+                    
+                    if (pullExitCode == 0)
+                    {
+                        Debug.Log($"Successfully updated package with git pull: {packageName}");
+                        return true; // 更新成功
+                    }
+                    else
+                    {
+                        Debug.LogWarning($"Git pull failed for {packageName}: {pullError}");
+                    }
+                }
+                catch (Exception pullEx)
+                {
+                    Debug.LogWarning($"Exception during git pull for {packageName}: {pullEx.Message}");
+                }
+            }
+            else
+            {
+                Debug.Log($"{packageName} is not a git repository, will re-clone");
+            }
+            
+            // 不管是更新失败还是非git仓库，都需要删除目录重新克隆
+            // 让操作系统有机会释放文件锁
+            // 不再使用Thread.Sleep，而是直接继续执行
+            
+            try
+            {
+                Directory.Delete(packagePath, true); // 递归删除目录
+                Debug.Log($"Removed existing package directory: {packagePath}");
+            }
+            catch (UnauthorizedAccessException uaEx)
+            {
+                Debug.LogWarning($"Unauthorized access error: {uaEx.Message}");
+                Debug.LogWarning($"Access denied to directory {packagePath}: {uaEx.Message}");
+                
+                // 尝试以更安全的方式删除
+                try
+                {
+                    // 重新尝试删除
+                    Directory.Delete(packagePath, true);
+                    Debug.Log($"Successfully removed directory after retry: {packagePath}");
+                }
+                catch
+                {
+                    // 如果还是失败，尝试清空目录内容而不是删除目录本身
+                    ClearDirectoryContents(packagePath);
+                }
+            }
+            catch (Exception deleteEx)
+            {
+                Debug.LogWarning($"Failed to remove existing directory: {deleteEx.Message}");
+                Debug.LogWarning($"Could not remove existing directory {packagePath}: {deleteEx.Message}");
+                
+                // 尝试清空目录内容而不是删除目录本身
+                ClearDirectoryContents(packagePath);
+            }
+            
+            return false; // 更新失败，需要重新克隆
         }
         
         // 辅助方法：清空目录内容
@@ -300,8 +350,7 @@ namespace NovaFramework.Editor.Launcher
                 catch (Exception ex)
                 {
                     Debug.LogWarning($"Could not delete file {file}: {ex.Message}");
-                    // 可能文件被占用，等待后再试
-                    System.Threading.Thread.Sleep(500);
+                    // 可能文件被占用，跳过等待直接尝试删除
                     try
                     {
                         File.Delete(file);
@@ -318,7 +367,41 @@ namespace NovaFramework.Editor.Launcher
                 Directory.Delete(dir, true);
             }
         }
-
+                
+        // 执行Git命令
+        private static int ExecuteGitCommand(string command, string workingDir, out string output, out string error)
+        {
+            output = "";
+            error = "";
+                    
+            try
+            {
+                System.Diagnostics.ProcessStartInfo startInfo = new System.Diagnostics.ProcessStartInfo
+                {
+                    FileName = "cmd.exe",
+                    Arguments = $"/c {command}",
+                    WorkingDirectory = workingDir,
+                    UseShellExecute = false,
+                    RedirectStandardOutput = true,
+                    RedirectStandardError = true,
+                    CreateNoWindow = true
+                };
+                        
+                using (System.Diagnostics.Process process = System.Diagnostics.Process.Start(startInfo))
+                {
+                    output = process.StandardOutput.ReadToEnd();
+                    error = process.StandardError.ReadToEnd();
+                    process.WaitForExit();
+                    return process.ExitCode;
+                }
+            }
+            catch (Exception ex)
+            {
+                error = ex.Message;
+                return -1; // 表示异常
+            }
+        }
+                
         static void ModifyManifestJson(string packageName, System.Action onComplete)
         {
             try
@@ -328,7 +411,6 @@ namespace NovaFramework.Editor.Launcher
                 if (!File.Exists(manifestPath))
                 {
                     string errorMsg = $"manifest.json not found at: {manifestPath}";
-                    _progressWindow?.SetError(errorMsg);
                     Debug.LogError(errorMsg);
                     onComplete?.Invoke();
                     return;
@@ -348,7 +430,7 @@ namespace NovaFramework.Editor.Launcher
                         // 检查是否已存在相同的依赖项，避免重复添加
                         if (jsonContent.Substring(dependenciesStart, openingBrace - dependenciesStart + 200).Contains(packageName))
                         {
-                            _progressWindow?.AddLog("Package dependency already exists in manifest.json");
+                            Debug.Log("Package dependency already exists in manifest.json");
                             onComplete?.Invoke();
                             return;
                         }
@@ -360,17 +442,13 @@ namespace NovaFramework.Editor.Launcher
                         string updatedJson = jsonContent.Insert(insertPosition, newEntry);
 
                         File.WriteAllText(manifestPath, updatedJson);
-                        _progressWindow?.AddLog("Successfully updated manifest.json with new package dependency");
+                        Debug.Log("Successfully updated manifest.json with new package dependency");
 
                         // 刷新 Unity 包管理器
                         AssetDatabase.Refresh();
                         
-                        // 延迟一点时间确保刷新完成
-                        EditorApplication.delayCall += () =>
-                        {
-                            Thread.Sleep(1000); // 等待1秒让Unity处理包更新
-                            onComplete?.Invoke();
-                        };
+                        // 立即执行回调，Unity会在后台处理包更新
+                        onComplete?.Invoke();
                     }
                 }
                 else
@@ -381,7 +459,6 @@ namespace NovaFramework.Editor.Launcher
             catch (Exception e)
             {
                 string errorMsg = $"Failed to modify manifest.json: {e.Message}";
-                _progressWindow?.SetError(errorMsg);
                 Debug.LogError(errorMsg);
                 onComplete?.Invoke();
             }
@@ -390,7 +467,9 @@ namespace NovaFramework.Editor.Launcher
         // 启动AutoInstallManager
         static void StartAutoInstallManager()
         {
-            _progressWindow?.SetStep(UnifiedInstallProgressWindow.InstallStep.RunAutoInstall, "正在启动AutoInstallManager...");
+
+            
+            Debug.Log("正在启动AutoInstallManager...");
             
             // 刷新AssetDatabase以确保新添加的包被识别
             AssetDatabase.Refresh();
@@ -406,354 +485,147 @@ namespace NovaFramework.Editor.Launcher
             };
         }
 
+        private static void OnPackagesRegistered(PackageRegistrationEventArgs args)
+        {
+            // 移除事件监听器以避免重复调用
+            Events.registeringPackages -= OnPackagesRegistered;
+            
+            // args 包含了添加、移除或更新的包信息
+            // 这里可以添加过滤条件，例如判断是否是因Resolve触发
+            if (args.added.Count > 0 || args.removed.Count > 0)
+            {
+                Debug.Log("包解析操作已完成，包列表已更新。");
+                // 在这里执行你的后续代码，例如刷新UI、初始化等
+                // 使用异步方式延迟执行，避免阻塞主线程
+                EditorApplication.delayCall += () =>
+                {
+                    TryLoadAndStartAutoInstallManager();
+                };
+            }
+        }
+      
+        
         // 等待包管理器完成更新并加载程序集
         static void ResolvePackageManagerAndLoadAssembly()
         {
             // 首先强制解析包管理器
             // 注意：Client.Resolve()是一个异步操作，它本身不返回请求对象
+            Events.registeringPackages += OnPackagesRegistered;
+            Debug.Log("启动Client.Resolve()以解析包...");
             Client.Resolve();
             
-            // 由于Client.Resolve()是异步的，我们需要等待一段时间以确保包管理器完成更新
-            // 使用计数器和EditorApplication.update来定期检查
-            int checkCount = 0;
-            int maxChecks = 60; // 最多检查60次 (30秒)
-            
-            EditorApplication.update += CheckResolveAndUpdate;
-            
-            void CheckResolveAndUpdate()
-            {
-                checkCount++;
-                
-                // 简单地等待一段时间，然后假设resolve已完成
-                if (checkCount >= 10) // 等待大约10次（每次约50-100毫秒）
-                {
-                    // 停止监听更新事件
-                    EditorApplication.update -= CheckResolveAndUpdate;
-                    
-                    _progressWindow?.AddLog("包管理器解析等待完成，准备启动AutoInstallManager...");
-                    
-                    // 延迟一段时间确保程序集完全加载
-                    EditorApplication.delayCall += () =>
-                    {
-                        System.Threading.Thread.Sleep(2000); // 等待2秒确保程序集加载
-                        TryLoadAndStartAutoInstallManager();
-                    };
-                }
-                else if (checkCount >= maxChecks)
-                {
-                    // 即使resolve未完成，也停止等待并尝试启动AutoInstallManager
-                    EditorApplication.update -= CheckResolveAndUpdate;
-                    
-                    _progressWindow?.AddLog("包管理器解析等待超时，但仍准备启动AutoInstallManager...");
-                    
-                    // 延迟一段时间确保程序集尽可能加载
-                    EditorApplication.delayCall += () =>
-                    {
-                        System.Threading.Thread.Sleep(1000); // 等待1秒
-                        TryLoadAndStartAutoInstallManager();
-                    };
-                }
-            }
+            Debug.Log("已调用Client.Resolve()，等待包解析完成...");
         }
         
         // 尝试加载并启动AutoInstallManager
         static void TryLoadAndStartAutoInstallManager()
         {
-            _progressWindow?.AddLog("开始尝试加载并启动AutoInstallManager...");
+            Debug.Log("开始尝试加载并启动AutoInstallManager...");
             
             // 再次刷新确保所有变更都已应用
             AssetDatabase.Refresh();
             
-            // 延迟一小段时间让Unity完成程序集编译
-            System.Threading.Thread.Sleep(2000);
-            
-            // 尝试通过反射调用AutoInstallManager的StartAutoInstall方法
-            Type autoInstallManagerType = null;
-            
-            // 首先尝试直接获取类型
-            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+            // 使用Unity的异步机制等待程序集编译完成
+            EditorApplication.delayCall += () =>
             {
-                try
+                // 稍后继续执行，给Unity时间处理
+                ContinueTryLoadAndStartAutoInstallManager();
+            };
+        }
+        
+        // 继续加载并启动AutoInstallManager
+        private static void ContinueTryLoadAndStartAutoInstallManager()
+        {
+            try
+            {
+                // 尝试通过反射调用AutoInstallManager的StartAutoInstall方法
+                Type autoInstallManagerType = null;
+                
+                // 首先尝试直接获取类型
+                foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
                 {
-                    // 排除系统程序集，只检查用户相关的程序集
-                    if (assembly.FullName.StartsWith("Nova") || 
-                        assembly.FullName.StartsWith("Assembly-CSharp") || 
-                        assembly.FullName.Contains("Installer"))
+                    try
                     {
-                        var type = assembly.GetType("NovaFramework.Editor.Installer.AutoInstallManager");
-                        if (type != null)
+                        // 排除系统程序集，只检查用户相关的程序集
+                        if (assembly.FullName.StartsWith("Nova") || 
+                            assembly.FullName.StartsWith("Assembly-CSharp") || 
+                            assembly.FullName.Contains("Installer"))
                         {
-                            autoInstallManagerType = type;
-                            _progressWindow?.AddLog($"找到AutoInstallManager类型在程序集: {assembly.FullName}");
-                            break;
+                            var type = assembly.GetType("NovaFramework.Editor.Installer.AutoInstallManager");
+                            if (type != null)
+                            {
+                                autoInstallManagerType = type;
+                                Debug.Log($"找到AutoInstallManager类型在程序集: {assembly.FullName}");
+                                break;
+                            }
                         }
                     }
-                }
-                catch (Exception ex)
-                {
-                    // 忽略无法访问的程序集
-                    continue;
-                }
-            }
-            
-            if (autoInstallManagerType != null)
-            {
-                // 首先设置外部进度回调
-                var setExternalProgressCallbacksMethod = autoInstallManagerType.GetMethod("SetExternalProgressCallbacks", 
-                    BindingFlags.Static | BindingFlags.Public);
-                
-                if (setExternalProgressCallbacksMethod != null)
-                {
-                    try
-                    {
-                        // 创建各种回调函数
-                        var stepCallback = new System.Action<int, string>((stepVal, detail) => {
-                            var unifiedStep = MapAutoInstallStepToUnifiedStep(stepVal);
-                            _progressWindow.SetStep(unifiedStep, detail);
-                            
-                            // 检查是否达到完成状态
-                            if (stepVal == 11) // AutoInstallManager.Complete 对应值为11
-                            {
-                                _installationCompleted = true;
-                                _progressWindow.AddLog("AutoInstallManager安装完成，设置完成标志。");
-                            }
-                        });
-                        
-                        var packageProgressCallback = new System.Action<int, int, string>(_progressWindow.SetPackageProgress);
-                        var logCallback = new System.Action<string>(_progressWindow.AddLog);
-                        var errorCallback = new System.Action<string>(_progressWindow.SetError);
-                        
-                        // 调用外部进度设置方法
-                        setExternalProgressCallbacksMethod.Invoke(null, new object[] {
-                            _progressWindow,  // externalProgressWindow
-                            stepCallback,     // setStepCallback
-                            packageProgressCallback, // setPackageProgressCallback
-                            logCallback,      // addLogCallback
-                            errorCallback     // setErrorCallback
-                        });
-                        
-                        _progressWindow.AddLog("已连接到AutoInstallManager进度系统...");
-                    }
                     catch (Exception ex)
                     {
-                        string errorMsg = $"Error setting external progress callbacks: {ex.Message}";
-                        _progressWindow.SetError(errorMsg);
-                        Debug.LogError(errorMsg);
+                        string exMsg = ex.Message;
+                        Debug.LogWarning($"Assembly loading error (ignored): {exMsg}");
+                        continue;
                     }
                 }
                 
-                // 现在调用StartAutoInstall方法
-                var startAutoInstallMethod = autoInstallManagerType.GetMethod("StartAutoInstall", 
-                    BindingFlags.Static | BindingFlags.Public);
-                
-                if (startAutoInstallMethod != null)
+                if (autoInstallManagerType != null)
                 {
-                    try
-                    {
-                        _progressWindow.AddLog("正在调用AutoInstallManager.StartAutoInstall方法...");
-                        
-                        // 在调用StartAutoInstall之前，确保包管理器已完全解析
-                        // 这里使用异步方式调用，避免阻塞
-                        EditorApplication.delayCall += () =>
-                        {
-                            try
-                            {
-                                startAutoInstallMethod.Invoke(null, null);
-                                _progressWindow.AddLog("AutoInstallManager已启动，进度将同步更新...");
-                            }
-                            catch (Exception invokeEx)
-                            {
-                                string errorMsg = $"Error invoking AutoInstallManager.StartAutoInstall: {invokeEx.Message}";
-                                _progressWindow.SetError(errorMsg);
-                                Debug.LogError(errorMsg);
-                                Debug.LogError(invokeEx.StackTrace);
-                            }
-                        };
-                    }
-                    catch (Exception ex)
-                    {
-                        string errorMsg = $"Error invoking AutoInstallManager.StartAutoInstall: {ex.Message}";
-                        _progressWindow.SetError(errorMsg);
-                        Debug.LogError(errorMsg);
-                        Debug.LogError(ex.StackTrace);
-                    }
-                }
-                else
-                {
-                    string errorMsg = "AutoInstallManager.StartAutoInstall method not found";
-                    _progressWindow.SetError(errorMsg);
-                    Debug.LogError(errorMsg);
-                }
-            }
-            else
-            {
-                // 如果找不到类型，尝试强制刷新并再等待一会儿
-                string errorMsg = "NovaFramework.Editor.Installer.AutoInstallManager type not found in loaded assemblies";
-                _progressWindow.AddLog(errorMsg);
-                
-                // 强制刷新并重试
-                AssetDatabase.Refresh(ImportAssetOptions.ForceUpdate);
-                
-                // 再次等待并尝试
-                EditorApplication.delayCall += () =>
-                {
-                    System.Threading.Thread.Sleep(3000); // 等待3秒
-                    _progressWindow?.AddLog("再次尝试加载AutoInstallManager...");
+                    // 现在调用StartAutoInstall方法
+                    var startAutoInstallMethod = autoInstallManagerType.GetMethod("StartAutoInstall", 
+                        BindingFlags.Static | BindingFlags.Public);
                     
-                    // 最后再尝试一次
-                    Type finalAutoInstallManagerType = null;
-                    foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
+                    if (startAutoInstallMethod != null)
                     {
                         try
                         {
-                            if (assembly.FullName.StartsWith("Nova") || 
-                                assembly.FullName.StartsWith("Assembly-CSharp") || 
-                                assembly.FullName.Contains("Installer"))
+                            Debug.Log("正在调用AutoInstallManager.StartAutoInstall方法...");
+                            
+                            // 在调用StartAutoInstall之前，确保包管理器已完全解析
+                            // 这里使用异步方式调用，避免阻塞
+                            EditorApplication.delayCall += () =>
                             {
-                                var type = assembly.GetType("NovaFramework.Editor.Installer.AutoInstallManager");
-                                if (type != null)
+                                try
                                 {
-                                    finalAutoInstallManagerType = type;
-                                    break;
+                                    startAutoInstallMethod.Invoke(null, null);
+                                    Debug.Log("AutoInstallManager已启动，进度将由AutoInstallManager自己管理...");
                                 }
-                            }
+                                catch (Exception invokeEx)
+                                {
+                                    string errorMsg = $"Error invoking AutoInstallManager.StartAutoInstall: {invokeEx.Message}";
+                                    Debug.LogError(errorMsg);
+                                    Debug.LogError(invokeEx.StackTrace);
+                                }
+                            };
                         }
                         catch (Exception ex)
                         {
-                            continue;
-                        }
-                    }
-                    
-                    if (finalAutoInstallManagerType != null)
-                    {
-                        var startAutoInstallMethod = finalAutoInstallManagerType.GetMethod("StartAutoInstall", 
-                            BindingFlags.Static | BindingFlags.Public);
-                        
-                        if (startAutoInstallMethod != null)
-                        {
-                            try
-                            {
-                                _progressWindow.AddLog("最终找到了AutoInstallManager，正在调用StartAutoInstall方法...");
-                                startAutoInstallMethod.Invoke(null, null);
-                                _progressWindow.AddLog("AutoInstallManager已启动！");
-                            }
-                            catch (Exception ex)
-                            {
-                                string errorMsg = $"Final attempt - Error invoking AutoInstallManager.StartAutoInstall: {ex.Message}";
-                                _progressWindow.SetError(errorMsg);
-                                Debug.LogError(errorMsg);
-                                Debug.LogError(ex.StackTrace);
-                            }
+                            string errorMsg = $"Error invoking AutoInstallManager.StartAutoInstall: {ex.Message}";
+                            Debug.LogError(errorMsg);
+                            Debug.LogError(ex.StackTrace);
                         }
                     }
                     else
                     {
-                        // 如果最终还是找不到，尝试手动调用Client.Resolve()后等待
-                        _progressWindow?.AddLog("仍然找不到AutoInstallManager，尝试再次调用Client.Resolve()...");
-                        
-                        EditorApplication.delayCall += () =>
-                        {
-                            Client.Resolve();
-                            System.Threading.Thread.Sleep(3000);
-                            AssetDatabase.Refresh();
-                            
-                            // 最终尝试
-                            Type lastAttemptType = null;
-                            foreach (var assembly in AppDomain.CurrentDomain.GetAssemblies())
-                            {
-                                try
-                                {
-                                    if (assembly.FullName.StartsWith("Nova") || 
-                                        assembly.FullName.StartsWith("Assembly-CSharp") || 
-                                        assembly.FullName.Contains("Installer"))
-                                    {
-                                        var type = assembly.GetType("NovaFramework.Editor.Installer.AutoInstallManager");
-                                        if (type != null)
-                                        {
-                                            lastAttemptType = type;
-                                            break;
-                                        }
-                                    }
-                                }
-                                catch (Exception ex)
-                                {
-                                    continue;
-                                }
-                            }
-                            
-                            if (lastAttemptType != null)
-                            {
-                                var startAutoInstallMethod = lastAttemptType.GetMethod("StartAutoInstall", 
-                                    BindingFlags.Static | BindingFlags.Public);
-                                
-                                if (startAutoInstallMethod != null)
-                                {
-                                    try
-                                    {
-                                        _progressWindow.AddLog("最后尝试成功！正在调用StartAutoInstall方法...");
-                                        startAutoInstallMethod.Invoke(null, null);
-                                        _progressWindow.AddLog("AutoInstallManager已启动！");
-                                    }
-                                    catch (Exception ex)
-                                    {
-                                        string errorMsg = $"Last attempt - Error invoking AutoInstallManager.StartAutoInstall: {ex.Message}";
-                                        _progressWindow.SetError(errorMsg);
-                                        Debug.LogError(errorMsg);
-                                        Debug.LogError(ex.StackTrace);
-                                    }
-                                }
-                            }
-                            else
-                            {
-                                _progressWindow.SetError("无法找到AutoInstallManager，请检查安装过程是否成功完成。");
-                            }
-                        };
+                        string errorMsg = "AutoInstallManager.StartAutoInstall method not found";
+                        Debug.LogError(errorMsg);
                     }
-                };
+                }
+                else
+                {
+                    // 如果找不到类型，说明安装未完成
+                    Debug.LogError("无法找到AutoInstallManager，请检查安装过程是否成功完成。");
+                }
             }
-        }
-
-        // 将AutoInstallProgressWindow.InstallStep的值映射到UnifiedInstallProgressWindow.InstallStep
-        private static UnifiedInstallProgressWindow.InstallStep MapAutoInstallStepToUnifiedStep(int autoInstallStepValue)
-        {
-            // 我们需要根据AutoInstallProgressWindow.InstallStep的枚举值进行映射
-            // 由于原进度窗口已移至launcher包中，我们使用数值映射
-            // 假设值对应关系如下：
-            // None=0, CheckEnvironment=1, LoadPackageInfo=2, InstallPackages=3, CreateDirectories=4, 
-            // InstallBasePack=5, CopyAotLibraries=6, GenerateConfig=7, CopyResources=8, ExportConfig=9, 
-            // OpenScene=10, Complete=11
-            
-            switch (autoInstallStepValue)
+            catch (Exception ex)
             {
-                case 0: // None
-                    return UnifiedInstallProgressWindow.InstallStep.RunAutoInstall;
-                case 1: // CheckEnvironment
-                    return UnifiedInstallProgressWindow.InstallStep.RunAutoInstall;
-                case 2: // LoadPackageInfo
-                    return UnifiedInstallProgressWindow.InstallStep.RunAutoInstall;
-                case 3: // InstallPackages
-                    return UnifiedInstallProgressWindow.InstallStep.RunAutoInstall;
-                case 4: // CreateDirectories
-                    return UnifiedInstallProgressWindow.InstallStep.RunAutoInstall;
-                case 5: // InstallBasePack
-                    return UnifiedInstallProgressWindow.InstallStep.RunAutoInstall;
-                case 6: // CopyAotLibraries
-                    return UnifiedInstallProgressWindow.InstallStep.RunAutoInstall;
-                case 7: // GenerateConfig
-                    return UnifiedInstallProgressWindow.InstallStep.RunAutoInstall;
-                case 8: // CopyResources
-                    return UnifiedInstallProgressWindow.InstallStep.RunAutoInstall;
-                case 9: // ExportConfig
-                    return UnifiedInstallProgressWindow.InstallStep.RunAutoInstall;
-                case 10: // OpenScene
-                    return UnifiedInstallProgressWindow.InstallStep.RunAutoInstall;
-                case 11: // Complete
-                    return UnifiedInstallProgressWindow.InstallStep.Complete;
-                default:
-                    return UnifiedInstallProgressWindow.InstallStep.RunAutoInstall; // 默认映射到运行自动安装阶段
+                string errorMsg = $"Unexpected error in TryLoadAndStartAutoInstallManager: {ex.Message}";
+                Debug.LogError(errorMsg);
+                Debug.LogError(ex.StackTrace);
             }
         }
+        
 
+        
         private static void RemoveSelf()
         {
             try
@@ -761,12 +633,10 @@ namespace NovaFramework.Editor.Launcher
                 // 使用 PackageManager 移除自身
                 Client.Remove(_launcherPackageName);
                 Debug.Log($"Successfully removed self: {_launcherPackageName}");
+                                
+                // 完成安装后，让AutoInstallManager处理后续流程（打开场景、配置中心等）
                 
-                // 标记安装已完成，避免重复执行
-                _installationCompleted = true;
-                
-                // 显示安装完成的消息框
-                EditorUtility.DisplayDialog("安装完成", "NovaFramework Installer 已成功安装！\n等待刷新完成后，按【 F8 】键完成后续安装。", "确定");
+
             }
             catch (Exception e)
             {
@@ -774,6 +644,13 @@ namespace NovaFramework.Editor.Launcher
             }
         }
         
+        // 公共方法供其他类调用删除launcher包
+        public static void RemoveLauncherPackage()
+        {
+            RemoveSelf();
+        }
+
+
         public static bool IsAssemblyExists(string assemblyName)
         {
             // 获取当前应用程序域中的所有已加载程序集
@@ -783,60 +660,38 @@ namespace NovaFramework.Editor.Launcher
             return assemblies.Any(assembly => 
                 string.Equals(assembly.GetName().Name, assemblyName, StringComparison.OrdinalIgnoreCase));
         }
-        
+    
+        /// <summary>
+        /// 检查是否已加载必要的程序集
+        /// </summary>
+        /// <returns></returns>
+        private static bool HasNecessaryAssemblies()
+        {
+            return IsAssemblyExists("NovaEditor.Installer") || IsAssemblyExists("NovaEditor.Common");
+        }
+    
         // 添加菜单项，允许用户手动启动自动安装
-        [MenuItem("Tools/NovaFramework/手动启动自动安装 &F8", false, 1)]
+        [MenuItem("Tools/NovaFramework/启动框架自动安装 _F7", false, 1)]
         public static void ManualStartInstallation()
         {
-            // 检查是否已经完成安装，如果是则跳过
-            if (_installationCompleted)
-            {
-                EditorUtility.DisplayDialog("提示", "NovaFramework 已经安装完成，无需重复安装。", "确定");
-                return;
-            }
-            
-            // 检查是否已经启动安装，防止重复执行
-            if (_installationStarted)
-            {
-                EditorUtility.DisplayDialog("提示", "安装已在进行中，请耐心等待。", "确定");
-                return;
-            }
-            
             // 检查Nova.Installer.Editor程序集是否存在
-            if (IsAssemblyExists("NovaEditor.Installer") || IsAssemblyExists("NovaEditor.Common"))
+            if (HasNecessaryAssemblies())
             {
-                EditorUtility.DisplayDialog("提示", "NovaFramework 相关程序集已存在，无需重复安装。", "确定");
-                return; // 如果程序集已存在，则跳过安装
-            }
-            
-            // 额外检查：检查是否已经有安装完成的标记
-            string installerPath = Path.Combine(Directory.GetParent(Application.dataPath).ToString(), "Packages", "manifest.json");
-            if (File.Exists(installerPath))
-            {
-                string manifestContent = File.ReadAllText(installerPath);
-                if (manifestContent.Contains("com.novaframework.unity.installer"))
+                Debug.Log("Required assemblies already exist, attempting to start AutoInstallManager...");
+                
+                // 延迟执行，确保编辑器完全加载
+                EditorApplication.delayCall += () =>
                 {
-                    EditorUtility.DisplayDialog("提示", "NovaFramework 已在manifest.json中配置，无需重复安装。", "确定");
-                    return; // 如果已经在manifest.json中存在，则跳过安装
-                }
+                    TryLoadAndStartAutoInstallManager();
+                };
             }
-            
-            // 设置安装启动标志
-            _installationStarted = true;
-            
-            Debug.Log("ManualStartInstallation - Starting unified installation process");
-
-            // 显示统一安装进度窗口
-            _progressWindow = UnifiedInstallProgressWindow.ShowWindow();
-            
-            // 立即设置初始步骤并强制刷新界面
-            _progressWindow.SetStep(UnifiedInstallProgressWindow.InstallStep.CheckEnvironment, "检查安装环境...");
-            
-            // 强制刷新界面，确保立即显示内容
-            _progressWindow.Repaint();
-            
-            // 延迟执行安装，确保UI已渲染
-            EditorApplication.delayCall += DoExecuteInstallation;
+            else
+            {
+                Debug.Log("Required assemblies not found, starting installation process...");
+                
+                // 开始新的安装流程
+                ExecuteInstallation();
+            }
         }
     }
 }
